@@ -88,7 +88,7 @@ ORCHESTRATOR_URL = f"{ORCHESTRATOR_SCHEME}://{ORCHESTRATOR_HOST}:{ORCHESTRATOR_P
 
 # S3
 S3_BUCKET = os.getenv("S3_BUCKET")
-USE_S3 = os.getenv("USE_S3", True) # always use it if not specified
+USE_S3 = os.getenv("USE_S3", True)  # always use it if not specified
 
 
 # Epistula
@@ -145,7 +145,7 @@ netuid = int(os.getenv("netuid", "9"))
 __spec_version__ = 4062
 # ==============================================
 # DASHBOARD
-DASHBOARD_BASE_URL = os.getenv("DASHBOARD_BASE_URL", "https://staging-swarm-dash-backend-kcsi.encr.app")
+DASHBOARD_BASE_URL = os.getenv("DASHBOARD_BASE_URL")
 DASHBOARD_ACCESS_KEY = os.getenv("DASHBOARD_ACCESS_KEY")
 ENABLE_DASHBOARD_REPORTING = os.getenv("ENABLE_DASHBOARD_REPORTING", "True") == "True"
 
@@ -159,7 +159,6 @@ if ENABLE_DASHBOARD_REPORTING:
 else:
     DASHBOARD_BASE_URL = None
 
-LOSS_REPORT_INTERVAL = 60  # seconds
 MINER_REPORT_INTERVAL = 180  # 3 minutes in seconds
 MINER_ACTIVITY_TIMEOUT = (
     3600  # 1 hour in seconds - time after which a miner is considered inactive and its node changes in frontend
