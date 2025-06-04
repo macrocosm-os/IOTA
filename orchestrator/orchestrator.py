@@ -1,47 +1,44 @@
-import io
-import csv
+import asyncio
 import copy
-import time
+import csv
+import io
 import json
 import random
-import asyncio
 import threading
-import settings
-from pathlib import Path
+import time
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
-from pydantic import BaseModel, Field, model_validator
 
 import bittensor as bt
 import numpy as np
 from bittensor_wallet.mock import get_mock_wallet
-
 from loguru import logger
+from pydantic import BaseModel, Field, model_validator
 
-from orchestrator.serializers import LossReport
-from orchestrator.serializers import SubmittedWeights
-from orchestrator.mongo_state import MongoStateManager
-from orchestrator.miner_registry import MinerRegistry, MinerData
-from orchestrator.validator_client_pool import ValidatorClientPool
+import settings
+from orchestrator import ORCHESTRATOR_NON_SERIALIZABLE_FIELDS
 from orchestrator.dashboard_metrics import DashboardMetricsReporter
 from orchestrator.metrics_collectors import (
     ActivationMetricsCollector,
     TimeSeriesMetricsCollector,
     WeightMergingMetricsCollector,
 )
-from orchestrator import ORCHESTRATOR_NON_SERIALIZABLE_FIELDS
-
-from storage.weight_storage import WeightStore
+from orchestrator.miner_registry import MinerData, MinerRegistry
+from orchestrator.mongo_state import MongoStateManager
+from orchestrator.serializers import LossReport, SubmittedWeights
+from orchestrator.validator_client_pool import ValidatorClientPool
 from storage.activation_storage import ActivationStore
 from storage.serializers import ActivationResponse
-
+from storage.weight_storage import WeightStore
 from utils.bt_utils import subtensor
 from utils.metagraph_syncer import MetagraphSyncer
-from utils.shared_states import MergingPhase, MergingPhaseManager
-from utils.partitions import PartitionManager, Partition
+from utils.partitions import Partition, PartitionManager
 from utils.s3_interactions import generate_presigned_url, upload_to_bucket
+from utils.shared_states import MergingPhase, MergingPhaseManager
 
 CHAIN_SCORES_LOCATIONS = "scores/miner_scores.json"
+
 
 class Orchestrator(BaseModel):
     """Main orchestrator class that manages miners, validators, and model training coordination.
@@ -218,7 +215,7 @@ class Orchestrator(BaseModel):
         if hotkey in self.miner_registry.get_all_miner_data().keys():
             logger.info(f"Miner {hotkey[:8]} already registered, returning already assigned layer")
             return self.miner_registry.get_miner_data(miner_hotkey=hotkey).layer
-        
+
         try:
             # Assign a layer to the miner during registration
             layer = await self.request_layer()
@@ -380,7 +377,7 @@ class Orchestrator(BaseModel):
                 logger.warning(f"Failed to remove activation from cache for miner {hotkey[:8]}: {e}")
 
         if scores_to_submit:
-            await self.submit_miner_scores(scores = scores_to_submit)
+            await self.submit_miner_scores(scores=scores_to_submit)
 
         # Validating activations
         validation_success = True
@@ -1016,6 +1013,12 @@ class Orchestrator(BaseModel):
         for miner_data in self.miner_registry.get_miners_in_layer(layer):
             self.miner_registry.update_miner_merge_status(miner_data.hotkey, "idle")
 
+        # Send aggregated loss data to dashboard after weight merge completion
+        if settings.ENABLE_DASHBOARD_REPORTING and self.dashboard_reporter:
+            await self.dashboard_reporter.send_aggregated_loss()
+            if settings.DASHBOARD_LOGS:
+                logger.info(f"Sent aggregated loss data to dashboard after layer {layer} weight merge completion")
+
     async def get_chunks_for_miner(self, hotkey: str) -> tuple[list[SubmittedWeights], list[int]]:
         """Get the chunk locations, chunk numbers, and chunk weight factor for the miner to enable
         butterfly all-reduce.
@@ -1041,11 +1044,12 @@ class Orchestrator(BaseModel):
         # Try to load previous scores from S3
         try:
             from utils.s3_interactions import s3_client
+
             if s3_client:
                 response = s3_client.get_object(Bucket=settings.S3_BUCKET, Key=CHAIN_SCORES_LOCATIONS)
                 scores = json.loads(response["Body"].read())
                 logger.info(f"Loaded previous scores from S3: {CHAIN_SCORES_LOCATIONS}")
-                
+
                 # Add scores with current timestamp
                 current_time = time.time()
                 for uid_str, score in scores.items():
@@ -1053,7 +1057,7 @@ class Orchestrator(BaseModel):
 
         except Exception as e:
             logger.warning(f"Could not load previous scores from S3: {e}")
-            
+
         logger.success(f"Global miner scores: {self.global_miner_scores}")
 
     async def initialize(self):
@@ -1095,7 +1099,9 @@ class Orchestrator(BaseModel):
                             f"Miner {loaded_miner_hotkey[:8]} not found in metagraph, removing from registry"
                         )
                         state["miner_registry"].remove_miner_from_registry(miner_hotkey=loaded_miner_hotkey)
-                        self.global_miner_scores.pop(self.miner_registry.get_miner_data(miner_hotkey=loaded_miner_hotkey).uid, None)
+                        self.global_miner_scores.pop(
+                            self.miner_registry.get_miner_data(miner_hotkey=loaded_miner_hotkey).uid, None
+                        )
 
             try:
                 # Get all field names from the Pydantic model
@@ -1726,9 +1732,11 @@ class Orchestrator(BaseModel):
         # update global scores history
         for uid, score in scores.items():
             score_in_history = self.global_miner_scores.get(uid, [])
-            score_in_history.append((timestamp, score)) # This will also add it to self.global_miner_scores due to python memory reference
+            score_in_history.append(
+                (timestamp, score)
+            )  # This will also add it to self.global_miner_scores due to python memory reference
 
-            historical_scores = [] 
+            historical_scores = []
 
             # remove scores older than SCORE_VALIDITY_PERIOD before updating the global scores history
             for historical_timestamp, historical_score in score_in_history:
@@ -1761,24 +1769,26 @@ class Orchestrator(BaseModel):
                 current_scores[uid] += sum_scores
             else:
                 current_scores[uid] = sum_scores
-                logger.warning(f"Miner {uid} not found in the miner_registry, but it's in the global_miner_scores... This shouldn't happen.")
+                logger.warning(
+                    f"Miner {uid} not found in the miner_registry, but it's in the global_miner_scores... This shouldn't happen."
+                )
 
         # Upload the current scores to the S3 bucket
-        self.upload_data_to_s3(data = current_scores, path = CHAIN_SCORES_LOCATIONS)
+        self.upload_data_to_s3(data=current_scores, path=CHAIN_SCORES_LOCATIONS)
         return current_scores
-    
+
     def upload_data_to_s3(self, data, path: str):
         try:
             scores_json = json.dumps(data)
-            scores_bytes = scores_json.encode('utf-8')
-                    
+            scores_bytes = scores_json.encode("utf-8")
+
             # Get presigned URL and upload
             presigned_data = generate_presigned_url(path=path)
             buffer = io.BytesIO(scores_bytes)
-            upload_to_bucket(presigned_data, {"file": ("data", buffer)})        
+            upload_to_bucket(presigned_data, {"file": ("data", buffer)})
         except Exception as e:
             logger.error(f"Failed to upload miner scores to S3: {e}")
-            
+
     def get_miners_grid_status(self) -> Dict[str, Any]:
         """Get comprehensive miner status data for grid visualization."""
         # Get the base grid data from the miner registry
