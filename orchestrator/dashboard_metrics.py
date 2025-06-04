@@ -15,7 +15,8 @@ class DashboardMetricsReporter:
         self.base_url = settings.DASHBOARD_BASE_URL
         self.last_loss_report = 0
         self.last_miner_report = 0
-        self.activation_count = 0
+        self.activation_count = 0  # Per-merge activation count (for sample size tracking)
+        self.total_activation_count = 0  # Cumulative total that never resets
         self.sampled_activations = []
         self.client = httpx.AsyncClient(timeout=10.0)
         self.env = getattr(settings, "DASHBOARD_ENV", "prod")
@@ -220,7 +221,8 @@ class DashboardMetricsReporter:
 
         # Add new data point to buffers
         self.loss_buffer.append(float(loss))
-        self.activation_count += int(number_of_sampled_activations)  # Accumulate activation count
+        self.activation_count += int(number_of_sampled_activations)  # Accumulate for this merge period
+        self.total_activation_count += int(number_of_sampled_activations)  # Cumulative total
 
     async def send_aggregated_loss(self) -> None:
         """Send aggregated loss data to dashboard.
@@ -255,7 +257,7 @@ class DashboardMetricsReporter:
             "timestamp": int(current_time),
             "loss": float(avg_loss),
             "perplexity": float(avg_perplexity),
-            "activation_count": int(self.activation_count),
+            "activation_count": int(self.total_activation_count),  # Use cumulative total
             "sample_size": int(sample_size),
         }
 
@@ -264,11 +266,11 @@ class DashboardMetricsReporter:
             self.last_loss_report = current_time
             # Clear buffers after successful report
             self.loss_buffer = []
-            # Reset activation count after successful report
+            # Reset per-merge activation count (but keep total_activation_count)
             self.activation_count = 0
             if settings.DASHBOARD_LOGS:
                 logger.info(
-                    f"Sent aggregated loss to dashboard: avg_loss={avg_loss:.4f}, avg_perplexity={avg_perplexity:.4f}, sample_size={sample_size}"
+                    f"Sent aggregated loss to dashboard: avg_loss={avg_loss:.4f}, avg_perplexity={avg_perplexity:.4f}, sample_size={sample_size}, total_activations={self.total_activation_count}"
                 )
         else:
             logger.warning("Failed to send aggregated loss to dashboard")
