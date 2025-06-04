@@ -223,6 +223,12 @@ class Orchestrator(BaseModel):
 
             logger.info(f"Successfully registered miner {hotkey[:8]} (Layer: {layer})")
 
+            # Report new miner registration to dashboard immediately
+            if settings.ENABLE_DASHBOARD_REPORTING:
+                await self.update_dashboard(miner_hotkey=hotkey)
+                if settings.DASHBOARD_LOGS:
+                    logger.info(f"Reported first-time registration of miner {hotkey[:8]} to dashboard")
+
         except Exception as e:
             logger.exception(f"Failed to register miner {hotkey[:8]}: {str(e)}")
             return None
@@ -445,10 +451,6 @@ class Orchestrator(BaseModel):
             cleaned_sessions = self.weight_merging_metrics_collector.cleanup_stale_sessions()
             if cleaned_sessions > 0:
                 logger.warning(f"Cleaned up {cleaned_sessions} stale weight merge sessions")
-
-        if settings.ENABLE_DASHBOARD_REPORTING:
-            # Update dashboard
-            await self.update_dashboard(miner_hotkey=hotkey)
 
         # Create the MongoDB state manager and save the current state after updating.
         if self.total_backwards % settings.UPLOAD_EVERY_N_UPDATES == 0:
