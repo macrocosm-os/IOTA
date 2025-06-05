@@ -106,8 +106,10 @@ class BaseNeuron(BaseModel):
     def _clean_gpu_memory(self):
         """Force cleanup of GPU memory."""
         if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
+            torch.cuda.synchronize()   # wait for all in-flight kernels
+            torch.cuda.empty_cache()   # release unused cached blocks
+            torch.cuda.synchronize()   # (optional) make sure the allocator work is finished
+
         gc.collect()
         logger.debug(f"Miner {self.hotkey} GPU memory cleaned. memory: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
 
