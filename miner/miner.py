@@ -312,7 +312,7 @@ class Miner(BaseNeuron):
                 if upload_time < time.time() - settings.ACTIVATION_CACHE_TIMEOUT:
                     del self.saved_forward_activations[activation_uid]
                     logger.warning(
-                        f"🗑️ Removed activation {activation_uid[:8]} from miner {self.hotkey[:8]} cache due to timeout"
+                        f"🗑️ Removed activation {activation_uid} from miner {self.hotkey[:8]} cache due to timeout"
                     )
 
         if not self.training:
@@ -399,7 +399,7 @@ class Miner(BaseNeuron):
         # Clip the gradients
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), settings.GRAD_CLIP_NORM)
 
-        logger.info(f"📊 Local step loss: {loss.item():.6f} | Activation: {activation_uid[:8]} | Miner: {self.hotkey[:8]}")
+        logger.info(f"📊 Local step loss: {loss.item():.6f} | Activation: {activation_uid} | Miner: {self.hotkey[:8]}")
 
         if settings.USE_WANDB:
             metrics = {"loss": float(loss.item())}
@@ -701,7 +701,7 @@ class Miner(BaseNeuron):
         activations: torch.Tensor | list[torch.Tensor],
         direction: Literal["forward", "backward", "initial"],
     ):
-        logger.info(f"📤 Uploading {direction} activation {activation_uid[:8]} | Layer: {self.layer} | Miner: {self.hotkey[:8]}")
+        logger.info(f"📤 Uploading {direction} activation {activation_uid} | Layer: {self.layer} | Miner: {self.hotkey[:8]}")
         
         # Ensure activations are detached and cloned before upload
         if isinstance(activations, torch.Tensor):
@@ -729,7 +729,7 @@ class Miner(BaseNeuron):
         # Clean up the activations tensor after upload
         del activations
 
-        logger.info(f"✅ Successfully uploaded {direction} activation {activation_uid[:8]} | Path: {storage_path}")
+        logger.info(f"✅ Successfully uploaded {direction} activation {activation_uid} | Path: {storage_path}")
         return storage_path
 
     async def forward(self, activation: ActivationResponse | None = None):
@@ -764,7 +764,7 @@ class Miner(BaseNeuron):
             activation_uid = str(uuid.uuid4())
 
             logger.info(
-                f"🚀 Starting FORWARD pass for layer {self.layer} | Generating initial activation {activation_uid[:8]} | Miner: {self.hotkey[:8]}"
+                f"🚀 Starting FORWARD pass for layer {self.layer} | Generating initial activation {activation_uid} | Miner: {self.hotkey[:8]}"
             )
             await self.upload_activations(
                 activation_uid=activation_uid,
@@ -781,7 +781,7 @@ class Miner(BaseNeuron):
                 return
 
             logger.info(
-                f"🚀 Starting FORWARD pass for layer {self.layer} | Processing activation {activation_uid[:8]} | Miner: {self.hotkey[:8]}"
+                f"🚀 Starting FORWARD pass for layer {self.layer} | Processing activation {activation_uid} | Miner: {self.hotkey[:8]}"
             )
 
             try:
@@ -801,7 +801,7 @@ class Miner(BaseNeuron):
             initial_activations_path = activation.initial_activation_path
             if not initial_activations_path:
                 logger.error(
-                    f"❌ No input activation path found for layer {self.layer}, miner {self.hotkey[:8]} is idle. For activation {activation_uid[:8]} and layer path {initial_activations_path} was returned"
+                    f"❌ No input activation path found for layer {self.layer}, miner {self.hotkey[:8]} is idle. For activation {activation_uid} and layer path {initial_activations_path} was returned"
                 )
                 return
             try:
@@ -820,7 +820,7 @@ class Miner(BaseNeuron):
             )
 
             logger.info(
-                f"📊 Computed loss {output_activations:.6f} for activation {activation_uid[:8]} | Layer: {self.layer} | Miner: {self.hotkey[:8]}"
+                f"📊 Computed loss {output_activations:.6f} for activation {activation_uid} | Layer: {self.layer} | Miner: {self.hotkey[:8]}"
             )
             try:
                 await self.api_client.report_loss(activation_uid=activation_uid, loss=float(output_activations))
@@ -837,7 +837,7 @@ class Miner(BaseNeuron):
             )
 
             await self.api_client.update_status(status="forward", activation_uid=activation_uid, activation_path=None)
-            logger.debug(f"📤 Updated status to 'forward' for activation {activation_uid[:8]}")
+            logger.debug(f"📤 Updated status to 'forward' for activation {activation_uid}")
 
             try:
                 await self.backward(activation=activation)
@@ -858,13 +858,13 @@ class Miner(BaseNeuron):
                 direction="forward",
             )
 
-        logger.info(f"✅ Successfully completed FORWARD pass for activation {activation_uid[:8]} on layer {self.layer} | Miner: {self.hotkey[:8]}")
+        logger.info(f"✅ Successfully completed FORWARD pass for activation {activation_uid} on layer {self.layer} | Miner: {self.hotkey[:8]}")
 
     async def backward(
         self,
         activation: ActivationResponse,
     ):
-        logger.info(f"🔄 Starting BACKWARD pass for activation {activation.activation_uid[:8]} | Layer: {self.layer} | Miner: {self.hotkey[:8]}")
+        logger.info(f"🔄 Starting BACKWARD pass for activation {activation.activation_uid} | Layer: {self.layer} | Miner: {self.hotkey[:8]}")
         
         activation_grads = None
         if self.layer != settings.N_LAYERS - 1 and settings.N_LAYERS > 1:
@@ -879,7 +879,7 @@ class Miner(BaseNeuron):
 
         # Check if activation is in cache
         if activation.activation_uid not in self.saved_forward_activations:
-            logger.warning(f"⚠️ Activation {activation.activation_uid[:8]} not found in cache, skipping backward pass")
+            logger.warning(f"⚠️ Activation {activation.activation_uid} not found in cache, skipping backward pass")
             return
 
         # Get activations from cache and move back to GPU
@@ -925,7 +925,7 @@ class Miner(BaseNeuron):
             direction="backward",
         )
 
-        logger.info(f"✅ Successfully completed BACKWARD pass for activation {activation.activation_uid[:8]} | Layer: {self.layer} | Miner: {self.hotkey[:8]}")
+        logger.info(f"✅ Successfully completed BACKWARD pass for activation {activation.activation_uid} | Layer: {self.layer} | Miner: {self.hotkey[:8]}")
 
     async def upload_activation(self, uid: str, layer: int, direction: str, data: torch.Tensor) -> str:
         """Upload an activation to S3 storage using orchestrator-coordinated multipart upload."""

@@ -141,7 +141,7 @@ class APIClient:
     async def update_status(
         self, status: str, activation_uid: Optional[str] = None, activation_path: Optional[str] = None
     ) -> Dict[str, Any]:
-        logger.debug(f"📤 API: Updating status to '{status}' | Activation: {activation_uid[:8] if activation_uid else 'N/A'}")
+        logger.debug(f"📤 API: Updating status to '{status}' | Activation: {activation_uid if activation_uid else 'N/A'}")
         data = {"status": status, "activation_path": activation_path}
         if activation_uid:
             data["activation_uid"] = activation_uid
@@ -158,7 +158,7 @@ class APIClient:
         return result
 
     async def report_loss(self, activation_uid: str, loss: float) -> LossReportResponse:
-        logger.debug(f"📊 API: Reporting loss {loss:.6f} for activation {activation_uid[:8]}")
+        logger.debug(f"📊 API: Reporting loss {loss:.6f} for activation {activation_uid}")
         data = LossReportRequest(activation_uid=activation_uid, loss_value=loss)
         response = await self._make_request(
             "post",
@@ -232,7 +232,7 @@ class APIClient:
         logger.debug(f"Got random activation: {response}")
         result = ActivationResponse(**response)
         if result.activation_uid:
-            logger.debug(f"✅ API: Random activation received | UID: {result.activation_uid[:8]} | Direction: {result.direction}")
+            logger.debug(f"✅ API: Random activation received | UID: {result.activation_uid} | Direction: {result.direction}")
         else:
             logger.debug(f"⏸️ API: No activations available | Reason: {result.reason}")
         return result
