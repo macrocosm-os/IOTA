@@ -94,6 +94,9 @@ class Miner(BaseNeuron):
         Loads the model, weights, optimizer, tokenizer, dataloader, and vocab info
         """
         try:
+            # Ensure previous model artifacts are cleared before loading a new one
+            self._clean_gpu_memory()
+
             # Check GPU memory before loading model
             if torch.cuda.is_available():
                 total_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3  # GB
@@ -511,7 +514,6 @@ class Miner(BaseNeuron):
 
         # Clean GPU memory only after weight sync completes
         logger.debug(f"Miner {self.hotkey} cleaning GPU memory after weight sync completion")
-        # self._clean_gpu_memory()
 
     async def _merge_models(
         self, information_packets: list[SubmittedWeights], partition_ids: list[int]
