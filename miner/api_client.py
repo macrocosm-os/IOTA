@@ -127,35 +127,45 @@ class APIClient:
         raise aiohttp.ClientError(f"Failed after {self.max_retries} attempts")
 
     async def register(self) -> int:
-        logger.debug(f"Registering miner {self.wallet.hotkey.ss58_address}")
+        logger.info(f"🔗 API: Registering miner {self.wallet.hotkey.ss58_address[:8]}")
         response = await self._make_request("post", f"{self.base_url}/orchestrator/register", json={})
         try:
-            return MinerRegistrationResponse(**response).layer
+            layer = MinerRegistrationResponse(**response).layer
+            logger.info(f"✅ API: Registration successful | Layer: {layer}")
+            return layer
         except Exception as e:
             logger.info(response)
-            logger.exception(f"Failed to register miner: {e}")
+            logger.exception(f"❌ API: Failed to register miner: {e}")
             raise
 
     async def update_status(
         self, status: str, activation_uid: Optional[str] = None, activation_path: Optional[str] = None
     ) -> Dict[str, Any]:
+        logger.debug(f"📤 API: Updating status to '{status}' | Activation: {activation_uid if activation_uid else 'N/A'}")
         data = {"status": status, "activation_path": activation_path}
         if activation_uid:
             data["activation_uid"] = activation_uid
 
-        return await self._make_request("post", f"{self.base_url}/orchestrator/miners/status", json=data)
+        response = await self._make_request("post", f"{self.base_url}/orchestrator/miners/status", json=data)
+        logger.debug(f"✅ API: Status updated successfully")
+        return response
 
     async def request_layer(self) -> LayerAssignmentResponse:
+        logger.info(f"🔗 API: Requesting layer assignment")
         response = await self._make_request("post", f"{self.base_url}/orchestrator/miners/request_layer")
-        return LayerAssignmentResponse(**response)
+        result = LayerAssignmentResponse(**response)
+        logger.info(f"✅ API: Layer assignment received | Layer: {result.layer}")
+        return result
 
     async def report_loss(self, activation_uid: str, loss: float) -> LossReportResponse:
+        logger.debug(f"📊 API: Reporting loss {loss:.6f} for activation {activation_uid}")
         data = LossReportRequest(activation_uid=activation_uid, loss_value=loss)
         response = await self._make_request(
             "post",
             f"{self.base_url}/orchestrator/miners/report_loss",
             json=data.model_dump(),
         )
+        logger.debug(f"✅ API: Loss reported successfully")
         return LossReportResponse(**response)
 
     async def notify_weights_uploaded(
@@ -165,10 +175,13 @@ class APIClient:
         optimizer_state_path: str,
         optimizer_state_metadata_path: str,
     ) -> Dict[str, Any]:
-        return await self._make_request(
+        logger.info(f"📤 API: Notifying weights uploaded")
+        response = await self._make_request(
             "post",
             f"{self.base_url}/orchestrator/miners/notify_weights_uploaded?weights_path={weights_path}&metadata_path={metadata_path}&optimizer_state_path={optimizer_state_path}&optimizer_state_metadata_path={optimizer_state_metadata_path}",
         )
+        logger.info(f"✅ API: Weights upload notification sent")
+        return response
 
     async def upload_activation_to_orchestrator(
         self, activation_uid: str, layer: int, direction: str, activation_path: str
@@ -214,20 +227,31 @@ class APIClient:
         self,
     ) -> ActivationResponse:
         """Get a random activation without seeing the full list."""
+        logger.debug(f"🎲 API: Getting random activation")
         response = await self._make_request("post", f"{self.base_url}/storage/activations/random")
         logger.debug(f"Got random activation: {response}")
-        return ActivationResponse(**response)
+        result = ActivationResponse(**response)
+        if result.activation_uid:
+            logger.debug(f"✅ API: Random activation received | UID: {result.activation_uid} | Direction: {result.direction}")
+        else:
+            logger.debug(f"⏸️ API: No activations available | Reason: {result.reason}")
+        return result
 
     async def get_layer_weights(self, layer: int) -> str:
+        logger.info(f"📥 API: Getting weights for layer {layer}")
         response = await self._make_request("get", f"{self.base_url}/storage/weights/layer/{layer}")
-        return [Partition(**partition) for partition in response]
+        partitions = [Partition(**partition) for partition in response]
+        logger.info(f"✅ API: Layer weights received | Partitions: {len(partitions)}")
+        return partitions
 
     async def merge_info(self, layer: int) -> dict[str, Any]:
         """Check if the system is currently in merging phase.
         Returns:
             dict[str, Any]: Dictionary containing the status and num_sections.
         """
+        logger.debug(f"🔍 API: Checking merge info for layer {layer}")
         response = await self._make_request("get", f"{self.base_url}/orchestrator/is_merging?layer={layer}")
+        logger.debug(f"✅ API: Merge info received | Status: {response.get('status', 'unknown')}")
         return response
 
     async def is_activation_active(self, layer: int, activation_uid: int) -> bool:
@@ -270,14 +294,20 @@ class APIClient:
 
     async def weight_partition_info(self):
         """Get the weight partition info for a given layer."""
-        return await self._make_request("get", f"{self.base_url}/orchestrator/get_chunks_for_miner")
+        logger.info(f"📥 API: Getting weight partition info")
+        response = await self._make_request("get", f"{self.base_url}/orchestrator/get_chunks_for_miner")
+        logger.info(f"✅ API: Weight partition info received")
+        return response
 
     async def notify_merged_partitions_uploaded(self, partitions: list[Partition]):
-        return await self._make_request(
+        logger.info(f"📤 API: Notifying merged partitions uploaded | Count: {len(partitions)}")
+        response = await self._make_request(
             "post",
             f"{self.base_url}/orchestrator/miners/notify_merged_partitions_uploaded",
             json=[partition.model_dump() for partition in partitions],
         )
+        logger.info(f"✅ API: Merged partitions notification sent")
+        return response
 
     async def initiate_multipart_upload(
         self,
@@ -338,11 +368,13 @@ class APIClient:
 
     async def health_check(self) -> bool:
         try:
+            logger.debug(f"🏥 API: Health check")
             await self._make_request(
                 method="get",
                 url=f"{self.base_url}/orchestrator/healthcheck",
             )
+            logger.debug(f"✅ API: Health check passed")
             return True
         except Exception as e:
-            logger.warning("Orchestrator failed health check!")
+            logger.warning("❌ API: Orchestrator failed health check!")
             return False

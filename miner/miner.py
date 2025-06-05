@@ -167,7 +167,7 @@ class Miner(BaseNeuron):
             self.health_app_runner = None
 
     async def run(self):
-        logger.info(f"Miner {self.hotkey} running")
+        logger.info(f"🚀 Starting miner {self.hotkey[:8]} | Timeout: {self.TIMEOUT}s")
 
         self.reregister_needed = True
 
@@ -175,9 +175,10 @@ class Miner(BaseNeuron):
             # Start the healthcheck server
             if settings.LAUNCH_HEALTH:
                 await self._start_health_server()
+                logger.info(f"🏥 Health server started for miner {self.hotkey[:8]}")
             else:
                 logger.warning(
-                    "Miner healthcheck API not configured in settings (MINER_HEALTH_PORT missing). Skipping."
+                    "⚠️ Miner healthcheck API not configured in settings (MINER_HEALTH_PORT missing). Skipping."
                 )
 
             start = time.time()
@@ -189,7 +190,7 @@ class Miner(BaseNeuron):
                         and not await self.api_client.health_check()
                         and not self.reregister_needed
                     ):
-                        logger.debug("Health check failed, reregistering")
+                        logger.warning(f"🏥 Health check failed for miner {self.hotkey[:8]}, reregistering")
                         self.reregister_needed = True
                         await asyncio.sleep(10)
                         continue
@@ -198,15 +199,14 @@ class Miner(BaseNeuron):
                     self.api_client.failed_api_request = False
 
                     if not self.api_client:
-                        logger.debug("Miner either has no api client")
+                        logger.debug(f"🔗 Miner {self.hotkey[:8]} initializing API client")
                         self.api_client = APIClient(wallet=self.wallet)
                         await self.api_client.__aenter__()
 
                     if self.reregister_needed:
                         try:
-                            logger.debug(f"Trying to reregister miner {self.hotkey}")
+                            logger.info(f"🔄 Reregistering miner {self.hotkey[:8]}")
                             await self.register()
-                            logger.debug(f"Miner {self.hotkey} registered with layer {self.layer}")
 
                             await self.load_model()
 
@@ -214,14 +214,14 @@ class Miner(BaseNeuron):
 
                             continue
                         except Exception as e:
-                            logger.error(f"Error reregistering miner {self.uid}: {e}")
+                            logger.error(f"❌ Error reregistering miner {self.uid}: {e}")
                             continue
 
                     if self.layer is None:
                         try:
                             response = await self.api_client.request_layer()
                             self.layer = response.layer
-                            logger.debug(f"Miner {self.uid} is moving to layer {self.layer}")
+                            logger.info(f"🎯 Miner {self.uid} assigned to layer {self.layer}")
 
                             # Load the model
                             await self._load_model()
@@ -230,19 +230,22 @@ class Miner(BaseNeuron):
                             try:
                                 weights_path = await self.api_client.get_layer_weights(self.layer)
                             except Exception as e:
-                                logger.warning(f"No weights found for layer {self.layer}, skipping")
+                                logger.warning(f"⚠️ No weights found for layer {self.layer}, skipping")
                                 weights_path = None
 
                             if weights_path:
+                                logger.info(f"📥 Loading existing weights for layer {self.layer}")
                                 self.weights = download_weights_or_optimizer_state(weights_path)
                                 assert isinstance(
                                     self.weights, torch.Tensor
                                 ), f"Weights must on {weights_path} be a torch.Tensor but are {type(self.weights)}"
                                 # assign weights to self.model
                                 torch.nn.utils.vector_to_parameters(self.weights, self.model.parameters())
+                                logger.info(f"✅ Loaded existing weights for layer {self.layer}")
                             else:
                                 # if there are no global weights, generate random weights
                                 self.weights = torch.nn.utils.parameters_to_vector(self.model.parameters())
+                                logger.info(f"🎲 Generated random weights for layer {self.layer}")
                             logger.debug(f"Miner {self.uid} has weights: {self.weights}")
                             await self._load_optimizer()
                             await self._load_lr_scheduler_2()
@@ -257,14 +260,14 @@ class Miner(BaseNeuron):
                                 await self._load_vocab_info()
 
                         except Exception as e:
-                            logger.error(f"Error loading model: {e}")
+                            logger.error(f"❌ Error loading model for miner {self.hotkey[:8]}: {e}")
                             continue
 
                     else:
                         # Final memory check after loading
                         if torch.cuda.is_available():
                             allocated_memory = torch.cuda.memory_allocated() / 1024**3  # GB
-                            logger.info(f"GPU memory: {allocated_memory:.2f}GB")
+                            logger.debug(f"💾 GPU memory: {allocated_memory:.2f}GB")
 
                         if settings.N_LAYERS == 1:
                             await self.local_step()
@@ -276,18 +279,19 @@ class Miner(BaseNeuron):
                     await self.print_status()
 
                 except Exception as e:
-                    logger.exception(f"While loop {self.hotkey} failed: {e}")
+                    logger.exception(f"❌ Main loop failed for miner {self.hotkey[:8]}: {e}")
 
             raise Exception(
-                f"Miner {self.hotkey} timed out on run loop: Timeout: {self.TIMEOUT} and time: {time.time() - start}"
+                f"⏰ Miner {self.hotkey[:8]} timed out on run loop: Timeout: {self.TIMEOUT} and time: {time.time() - start}"
             )
 
         except Exception as e:
-            logger.exception(f"Miner {self.hotkey} failed: {e}")
+            logger.exception(f"❌ Miner {self.hotkey[:8]} failed: {e}")
         finally:
             # Stop the healthcheck server
             if settings.MINER_HEALTH_PORT:
                 await self._stop_health_server()
+                logger.info(f"🏥 Health server stopped for miner {self.hotkey[:8]}")
 
             if self.api_client:
                 await self.api_client.__aexit__(None, None, None)
@@ -296,7 +300,7 @@ class Miner(BaseNeuron):
             self._clean_gpu_memory()
 
     async def print_status(self):
-        logger.info(f"Miner {self.hotkey} is on layer {self.layer}")
+        logger.debug(f"📊 Miner {self.hotkey[:8]} status | Layer: {self.layer} | Epoch: {self.epoch}")
         # Status is now managed through API calls, so we don't need to access orchestrator directly
 
     async def step(self):
@@ -308,12 +312,12 @@ class Miner(BaseNeuron):
                 if upload_time < time.time() - settings.ACTIVATION_CACHE_TIMEOUT:
                     del self.saved_forward_activations[activation_uid]
                     logger.warning(
-                        f"Removed activation {activation_uid} from miner {self.hotkey[:8]} cache due to timeout"
+                        f"🗑️ Removed activation {activation_uid} from miner {self.hotkey[:8]} cache due to timeout"
                     )
 
         if not self.training:
             result = await self.api_client.merge_info(layer=self.layer)
-            logger.debug(f"Miner {self.hotkey} is in the merging phase: {result}")
+            logger.info(f"🔄 Miner {self.hotkey[:8]} entering merging phase: {result}")
             # Clear cache before weight syncing
             self.saved_forward_activations.clear()
             try:
@@ -321,7 +325,7 @@ class Miner(BaseNeuron):
                 self.training = True
                 return
             except Exception as e:
-                logger.exception(f"Error syncing weights: {e}")
+                logger.exception(f"❌ Error syncing weights for miner {self.hotkey[:8]}: {e}")
                 await asyncio.sleep(WAIT_TIME)
                 raise
 
@@ -329,6 +333,7 @@ class Miner(BaseNeuron):
             self.backwards_since_reduce >= settings.LOCAL_OPTIMIZER_STEPS
             and settings.LOCAL_OPTIMIZER_STEPS < settings.GLOBAL_OPTIMIZER_STEPS
         ):
+            logger.info(f"🔄 Performing local all-reduce for miner {self.hotkey[:8]} | Steps: {self.backwards_since_reduce}")
             await self.local_all_reduce()
             self.saved_forward_activations.clear()
             self.backwards_since_reduce = 0
@@ -340,7 +345,7 @@ class Miner(BaseNeuron):
         activation_response: ActivationResponse = await self.api_client.get_random_activation()
         if activation_response.reason == "not training":
             logger.warning(
-                f"Miner {self.hotkey} on layer {self.layer} is merging based on get_random_activation reason, skipping forward step"
+                f"⏸️ Miner {self.hotkey[:8]} on layer {self.layer} is merging based on get_random_activation reason, skipping forward step"
             )
             await asyncio.sleep(1)
             self.training = False
@@ -354,17 +359,19 @@ class Miner(BaseNeuron):
 
         if self.layer == 0:
             if activation_response.reason == "out_of_cache":
-                logger.info(f"Miner {self.hotkey} on layer {self.layer} is out of cache, skipping forward step")
+                logger.info(f"⏸️ Miner {self.hotkey[:8]} on layer {self.layer} is out of cache, skipping forward step")
                 await asyncio.sleep(1)
                 return
             return await self.forward()
 
-        logger.warning(f"Miner {self.hotkey} on layer {self.layer} is idle, no activations are ready... waiting")
+        logger.debug(f"⏸️ Miner {self.hotkey[:8]} on layer {self.layer} is idle, no activations are ready... waiting")
         await asyncio.sleep(1)
 
     async def local_step(self):
         if self.layer is None:
             raise Exception("Layer is not set")
+
+        logger.info(f"🔄 Performing local step for single-layer training | Miner: {self.hotkey[:8]} | Layer: {self.layer}")
 
         input_activations = await self._load_data()
         activation_uid = str(uuid.uuid4())
@@ -392,6 +399,8 @@ class Miner(BaseNeuron):
         # Clip the gradients
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), settings.GRAD_CLIP_NORM)
 
+        logger.info(f"📊 Local step loss: {loss.item():.6f} | Activation: {activation_uid} | Miner: {self.hotkey[:8]}")
+
         if settings.USE_WANDB:
             metrics = {"loss": float(loss.item())}
             await self._log_wandb(metrics)
@@ -411,27 +420,32 @@ class Miner(BaseNeuron):
         await self.api_client.report_loss(activation_uid, float(loss.item()))
         await self.local_all_reduce()
 
+        logger.info(f"✅ Local step completed | Miner: {self.hotkey[:8]}")
+
     async def register(self):
         """
         Registers the miner with the orchestrator and returns the layer assigned to the miner
         """
+        logger.info(f"🔗 Registering miner {self.hotkey[:8]} with orchestrator...")
         self.layer: int = await self.api_client.register()
+        logger.info(f"✅ Successfully registered miner {self.hotkey[:8]} | Assigned to layer: {self.layer}")
 
     async def await_orchestrator_status(self, status: MergingPhase):
         while True:
-            logger.info(f"Miner {self.hotkey} in epoch {self.epoch} waiting for orchestrator status: {status}")
+            logger.info(f"⏳ Miner {self.hotkey[:8]} in epoch {self.epoch} waiting for orchestrator status: {status}")
             status_response = await self.api_client.merge_info(layer=self.layer)
             if status_response.get("status") == status.value:
+                logger.info(f"✅ Orchestrator status reached: {status}")
                 break
             await asyncio.sleep(1.5 if settings.MOCK else 10)
 
     async def sync_weights(self, num_sections: int):
         if not self.has_layer:
-            logger.warning(f"Miner {self.hotkey} cannot sync weights: layer not assigned")
+            logger.warning(f"⚠️ Miner {self.hotkey[:8]} cannot sync weights: layer not assigned")
             return
         try:
             logger.info(
-                f"Miner {self.hotkey} syncing weights after {self.backwards_since_sync} steps, epoch {self.epoch}"
+                f"🔄 Starting weight sync for miner {self.hotkey[:8]} | Layer: {self.layer} | Epoch: {self.epoch} | Steps since sync: {self.backwards_since_sync}"
             )
 
             # Clear cache before weight syncing to free memory
@@ -445,6 +459,7 @@ class Miner(BaseNeuron):
             flattened_optimizer_state, _, _ = flatten_optimizer_state(self.optimizer)
             weights = torch.nn.utils.parameters_to_vector(self.model.parameters())
 
+            logger.info(f"📤 Uploading weights and optimizer state | Sections: {num_sections}")
             (
                 weight_path,
                 weight_metadata_path,
@@ -463,6 +478,7 @@ class Miner(BaseNeuron):
             )
             logger.debug(f"EPOCH {self.epoch}: UPLOADING WEIGHTS: {self.hotkey} | {self.layer} | {weights}")
 
+            logger.info(f"📤 Notifying orchestrator of uploaded weights...")
             success = (
                 await self.api_client.notify_weights_uploaded(
                     weights_path=weight_path,
@@ -472,45 +488,55 @@ class Miner(BaseNeuron):
                 )
             )["success"]
             if success != "success":
-                logger.error(f"Miner {self.hotkey} failed to upload weights to orchestrator")
-                raise Exception(f"Miner {self.hotkey} failed to upload weights to orchestrator. Error: {success}")
+                logger.error(f"❌ Miner {self.hotkey[:8]} failed to upload weights to orchestrator")
+                raise Exception(f"Miner {self.hotkey[:8]} failed to upload weights to orchestrator. Error: {success}")
+
+            logger.info(f"✅ Successfully notified orchestrator of weight upload")
 
             # TODO: start downloading other miners parititons as they become available
             # TODO: make a placeholder for the polling process
             await self.await_orchestrator_status(status=MergingPhase.MINERS_MERGING_PARTITIONS)
 
+            logger.info(f"📥 Getting weight partition info for merging...")
             information_packets, partition_ids = await self.api_client.weight_partition_info()
             information_packets = [SubmittedWeights(**packet) for packet in information_packets]
 
             # download the partitons, apply the merge (simple avg) and upload the merged weights
+            logger.info(f"🔄 Merging {len(information_packets)} weight partitions...")
             partitions: list[Partition] = await self._merge_models(
                 information_packets=information_packets,
                 partition_ids=partition_ids,
             )
 
+            logger.info(f"📤 Notifying orchestrator of merged partitions...")
             logger.debug(
-                f"Miner {self.hotkey} notifying orchestrator of merged partitions: {partitions}, epoch {self.epoch}"
+                f"Miner {self.hotkey[:8]} notifying orchestrator of merged partitions: {partitions}, epoch {self.epoch}"
             )
             await self.api_client.notify_merged_partitions_uploaded(partitions=partitions)
+            logger.info(f"✅ Successfully uploaded merged partitions")
         except Exception as e:
-            logger.error(f"Miner {self.hotkey} failed to sync weights: {e}")
+            logger.error(f"❌ Miner {self.hotkey[:8]} failed to sync weights: {e}")
 
         # Now we poll again until the merge process is complete
         await self.await_orchestrator_status(status=MergingPhase.IS_TRAINING)
 
         # Once merging is complete, we download the layer weights and update the model
         try:
+            logger.info(f"📥 Downloading merged weights...")
             self.weights, self.optimizer = await self.download_weights()
+            logger.info(f"✅ Successfully downloaded merged weights")
             logger.warning(f"WEIGHTS DOWNLOADED: {self.weights}")
         except Exception as e:
-            logger.error(f"Error downloading weights after merge: {e}")
+            logger.error(f"❌ Error downloading weights after merge: {e}")
             # Continue even if weight download fails
 
         self.backwards_since_sync = 0
         self.epoch += 1
 
+        logger.info(f"✅ Weight sync completed | Epoch: {self.epoch} | Miner: {self.hotkey[:8]}")
+
         # Clean GPU memory only after weight sync completes
-        logger.debug(f"Miner {self.hotkey} cleaning GPU memory after weight sync completion")
+        logger.debug(f"Miner {self.hotkey[:8]} cleaning GPU memory after weight sync completion")
         # self._clean_gpu_memory()
 
     async def _merge_models(
@@ -675,6 +701,8 @@ class Miner(BaseNeuron):
         activations: torch.Tensor | list[torch.Tensor],
         direction: Literal["forward", "backward", "initial"],
     ):
+        logger.info(f"📤 Uploading {direction} activation {activation_uid} | Layer: {self.layer} | Miner: {self.hotkey[:8]}")
+        
         # Ensure activations are detached and cloned before upload
         if isinstance(activations, torch.Tensor):
             activations = activations.detach().clone()
@@ -692,8 +720,8 @@ class Miner(BaseNeuron):
         #     activation_path=storage_path,
         # )
 
-        logger.debug(f"Uploaded activation to path: {storage_path}")
-        logger.debug(f"Calling update status with direction {direction}")
+        logger.debug(f"📤 Uploaded activation to path: {storage_path}")
+        logger.debug(f"📤 Updating status with direction {direction}")
         await self.api_client.update_status(
             status=direction, activation_uid=activation_uid, activation_path=storage_path
         )
@@ -701,6 +729,7 @@ class Miner(BaseNeuron):
         # Clean up the activations tensor after upload
         del activations
 
+        logger.info(f"✅ Successfully uploaded {direction} activation {activation_uid} | Path: {storage_path}")
         return storage_path
 
     async def forward(self, activation: ActivationResponse | None = None):
@@ -717,7 +746,7 @@ class Miner(BaseNeuron):
         - Performing the backward pass
         """
         if await self.out_of_cache:
-            logger.warning(f"Miner {self.hotkey} is out of cache, skipping forward pass")
+            logger.warning(f"⚠️ Miner {self.hotkey[:8]} is out of cache, skipping forward pass")
             await asyncio.sleep(1)
             return
 
@@ -734,12 +763,8 @@ class Miner(BaseNeuron):
             input_activations = await self._load_data()
             activation_uid = str(uuid.uuid4())
 
-            logger.debug(
-                "FORWARD: GENERATING FIRST LAYER ACTIVATION | UID: {} | DIRECTION: {} | MINER: {} | LAYER: {}",
-                activation_uid,
-                "initial",
-                self.hotkey,
-                self.layer,
+            logger.info(
+                f"🚀 Starting FORWARD pass for layer {self.layer} | Generating initial activation {activation_uid} | Miner: {self.hotkey[:8]}"
             )
             await self.upload_activations(
                 activation_uid=activation_uid,
@@ -752,27 +777,18 @@ class Miner(BaseNeuron):
             input_activation_path = activation.activation_path
 
             if not activation_uid or not input_activation_path:
-                logger.warning(f"No forward activations found for layer {self.layer}, miner {self.hotkey} is idle")
+                logger.warning(f"⏸️ No forward activations found for layer {self.layer}, miner {self.hotkey[:8]} is idle")
                 return
 
-            if activation_uid is not None:
-                logger.debug(
-                    "FORWARD: GOT RANDOM ACTIVATION | ACTIVATION UID: {} | DIRECTION: {} | MINER: {} | LAYER: {}",
-                    activation_uid,
-                    "forward",
-                    self.hotkey,
-                    self.layer,
-                )
-            else:
-                logger.debug(
-                    "Miner is currently idle as no activatins from the previous layer are available... Waiting for other miners to upload activations"
-                )
-                return
+            logger.info(
+                f"🚀 Starting FORWARD pass for layer {self.layer} | Processing activation {activation_uid} | Miner: {self.hotkey[:8]}"
+            )
 
             try:
                 input_activations = download_activation(path=input_activation_path)
+                logger.debug(f"📥 Downloaded activation from {input_activation_path}")
             except Exception as e:
-                logger.error(f"Error downloading activation: {e}")
+                logger.error(f"❌ Error downloading activation: {e}")
                 return
 
         output_activations, state = await self._forward(input_activations)
@@ -785,13 +801,14 @@ class Miner(BaseNeuron):
             initial_activations_path = activation.initial_activation_path
             if not initial_activations_path:
                 logger.error(
-                    f"No input activation path found for layer {self.layer}, miner {self.hotkey} is idle. For activation {activation_uid} and layer path {initial_activations_path} was returned"
+                    f"❌ No input activation path found for layer {self.layer}, miner {self.hotkey[:8]} is idle. For activation {activation_uid} and layer path {initial_activations_path} was returned"
                 )
                 return
             try:
                 initial_activations = download_activation(path=initial_activations_path)
+                logger.debug(f"📥 Downloaded initial activation from {initial_activations_path}")
             except Exception as e:
-                logger.error(f"Error downloading initial activation: {e}")
+                logger.error(f"❌ Error downloading initial activation: {e}")
                 return
 
             output_activations = model_utils.compute_loss(
@@ -803,12 +820,13 @@ class Miner(BaseNeuron):
             )
 
             logger.info(
-                f"Miner {self.hotkey} on layer {self.layer} computed loss {output_activations} for activation {activation_uid}"
+                f"📊 Computed loss {output_activations:.6f} for activation {activation_uid} | Layer: {self.layer} | Miner: {self.hotkey[:8]}"
             )
             try:
                 await self.api_client.report_loss(activation_uid=activation_uid, loss=float(output_activations))
+                logger.debug(f"📤 Reported loss to orchestrator")
             except Exception as e:
-                logger.error(f"Error reporting loss: {e}")
+                logger.error(f"❌ Error reporting loss: {e}")
 
             # Update saved activations with loss (keep on CPU)
             self.saved_forward_activations[activation_uid] = (
@@ -819,6 +837,7 @@ class Miner(BaseNeuron):
             )
 
             await self.api_client.update_status(status="forward", activation_uid=activation_uid, activation_path=None)
+            logger.debug(f"📤 Updated status to 'forward' for activation {activation_uid}")
 
             try:
                 await self.backward(activation=activation)
@@ -830,7 +849,7 @@ class Miner(BaseNeuron):
                     await self._log_wandb(metrics)
 
             except Exception as e:
-                logger.exception(f"Error during backward step on last layer: {e}")
+                logger.exception(f"❌ Error during backward step on last layer: {e}")
 
         else:
             await self.upload_activations(
@@ -839,10 +858,14 @@ class Miner(BaseNeuron):
                 direction="forward",
             )
 
+        logger.info(f"✅ Successfully completed FORWARD pass for activation {activation_uid} on layer {self.layer} | Miner: {self.hotkey[:8]}")
+
     async def backward(
         self,
         activation: ActivationResponse,
     ):
+        logger.info(f"🔄 Starting BACKWARD pass for activation {activation.activation_uid} | Layer: {self.layer} | Miner: {self.hotkey[:8]}")
+        
         activation_grads = None
         if self.layer != settings.N_LAYERS - 1 and settings.N_LAYERS > 1:
             # For backward pass, we need to get activations that we have cached forward activations for
@@ -852,18 +875,11 @@ class Miner(BaseNeuron):
 
             activation_grads = activation_grads.to(settings.DEVICE)
 
-            logger.debug(
-                "BACKWARD: DOWNLOADING ACTIVATION GRADIENTS | UID: {} | DIRECTION: {} | DELETE: {} | MINER: {} | LAYER: {}",
-                activation.activation_uid,
-                "backward",
-                False,
-                self.hotkey,
-                self.layer,
-            )
+            logger.debug(f"📥 Downloaded activation gradients from {activation_grads_path}")
 
         # Check if activation is in cache
         if activation.activation_uid not in self.saved_forward_activations:
-            logger.warning(f"Activation {activation.activation_uid} not found in cache, skipping backward pass")
+            logger.warning(f"⚠️ Activation {activation.activation_uid} not found in cache, skipping backward pass")
             return
 
         # Get activations from cache and move back to GPU
@@ -908,6 +924,8 @@ class Miner(BaseNeuron):
             activations=input_activation_grads,
             direction="backward",
         )
+
+        logger.info(f"✅ Successfully completed BACKWARD pass for activation {activation.activation_uid} | Layer: {self.layer} | Miner: {self.hotkey[:8]}")
 
     async def upload_activation(self, uid: str, layer: int, direction: str, data: torch.Tensor) -> str:
         """Upload an activation to S3 storage using orchestrator-coordinated multipart upload."""
