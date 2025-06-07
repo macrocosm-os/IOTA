@@ -1,6 +1,6 @@
 # IOTA
 
-**I**ncentivized **O**rchestrated **T**raining **A**rchitecture (IOTA) is a framework for pretraining large language models across a network of heterogeneous, unreliable, permissionless and token incentivized machines. IOTA employs a data- and pipeline-parallel architecture to accelerate training and reduce hardware requirements for participants.
+**I**ncentivized **O**rchestrated **T**raining **A**rchitecture ([IOTA](iota.macrocosmos.ai)) is a framework for pretraining large language models across a network of heterogeneous, unreliable, permissionless and token incentivized machines. IOTA employs a data- and pipeline-parallel architecture to accelerate training and reduce hardware requirements for participants.
 
 **Overview**:
 - Orchestrator distributes model layers across heterogeneous miners and streams activations between them.
