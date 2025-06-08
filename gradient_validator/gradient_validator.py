@@ -93,6 +93,9 @@ class GradientValidator(BaseNeuron):
         self.layer = layer
         self.available = False
         self.miner_weights[self.tracked_miner] = 0
+
+        self._clean_gpu_memory()
+
         # Load the model
         await self._load_model()
         await self._load_optimizer()
@@ -291,7 +294,9 @@ class GradientValidator(BaseNeuron):
                 direction="backward",
                 activation_uid=activation_uid,
             )
-            del self.saved_forward_activations[activation_uid]
+
+            self._clear_cache_entry(activation_uid=activation_uid)
+
             self.processed_backward_activations.append(activation_uid)
             logger.debug(
                 f"GRADIENT VALIDATOR [MINER {self.tracked_miner}]: BACKWARD PASS COMPLETE: VALID: {is_valid}, SCORE: {score}, REASON: {reason}"

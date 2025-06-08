@@ -39,27 +39,6 @@ class Miner(BaseNeuron):
     reregister_needed: bool = True
     training: bool = True
 
-    def _clear_cache_entry(self, activation_uid: str):
-        """Safely removes an entry from the activation cache and cleans up tensors."""
-        if activation_uid in self.saved_forward_activations:
-            # Pop the data from the cache
-            cached_data = self.saved_forward_activations.pop(activation_uid, None)
-
-            if cached_data:
-                # Unpack and explicitly delete to release references, helping the GC
-                input_act, output_act, state, _ = cached_data
-                del input_act
-                del output_act
-                del state
-                del cached_data
-
-            logger.debug(f"🗑️ Removed and cleaned activation {activation_uid} from cache 🗑️")
-
-    def _clear_saved_forward_activations(self):
-        """Clears the saved forward activations cache for all activations."""
-        for activation_uid in list(self.saved_forward_activations.keys()):
-            self._clear_cache_entry(activation_uid=activation_uid)
-
     def _clean_gpu_memory(self):
         """Overrides the base neuron's cleanup to include miner-specific caches."""
         logger.debug("🗑️ Running miner-specific GPU memory cleanup. 🗑️")
