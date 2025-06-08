@@ -386,9 +386,7 @@ class Miner(BaseNeuron):
                 f"🔄 Performing local all-reduce for miner {self.hotkey[:8]} | Steps: {self.backwards_since_reduce}"
             )
             await self.local_all_reduce()
-
-            for activation_uid in list(self.saved_forward_activations.keys()):
-                self._clear_cache_entry(activation_uid=activation_uid)
+            self._clear_saved_forward_activations()
 
             self.backwards_since_reduce = 0
             return
