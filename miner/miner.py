@@ -3,6 +3,7 @@ import time
 import uuid
 import json
 import io
+import gc
 from typing import Literal, Any, Optional
 
 import torch
@@ -37,6 +38,28 @@ class Miner(BaseNeuron):
     health_site: Optional[web.TCPSite] = None
     reregister_needed: bool = True
     training: bool = True
+
+    def _clean_gpu_memory(self):
+        """Overrides the base neuron's cleanup to include miner-specific caches."""
+        logger.debug("🗑️ Running miner-specific GPU memory cleanup. 🗑️")
+
+        # Clear activation cache
+        if hasattr(self, "saved_forward_activations"):
+            logger.debug(f"Clearing {len(self.saved_forward_activations)} cached activations.")
+
+        self._clear_saved_forward_activations()
+
+        # Clear processed activation lists
+        if hasattr(self, "processed_forward_activations"):
+            self.processed_forward_activations.clear()
+            logger.debug("Cleared processed forward activations list.")
+
+        if hasattr(self, "processed_backward_activations"):
+            self.processed_backward_activations.clear()
+            logger.debug("Cleared processed backward activations list.")
+
+        # Call parent cleanup
+        super()._clean_gpu_memory()
 
     @property
     async def out_of_cache(self):
@@ -321,8 +344,10 @@ class Miner(BaseNeuron):
         if not self.training:
             result = await self.api_client.merge_info(layer=self.layer)
             logger.info(f"🔄 Miner {self.hotkey[:8]} entering merging phase: {result}")
+
             # Clear cache before weight syncing
-            self.saved_forward_activations.clear()
+            self._clear_saved_forward_activations()
+
             try:
                 await self.sync_weights(num_sections=int(result["num_sections"]))
                 self.training = True
@@ -340,7 +365,8 @@ class Miner(BaseNeuron):
                 f"🔄 Performing local all-reduce for miner {self.hotkey[:8]} | Steps: {self.backwards_since_reduce}"
             )
             await self.local_all_reduce()
-            self.saved_forward_activations.clear()
+            self._clear_saved_forward_activations()
+
             self.backwards_since_reduce = 0
             return
 
@@ -447,16 +473,28 @@ class Miner(BaseNeuron):
             await asyncio.sleep(1.5 if settings.MOCK else 10)
 
     async def sync_weights(self, num_sections: int):
+        """Syncs the weights of the miner with the orchestrator.
+
+        Args:
+            num_sections (int): The number of sections to sync.
+
+        Raises:
+            Exception: If the miner is not registered on the metagraph.
+        """
         if not self.has_layer:
             logger.warning(f"⚠️ Miner {self.hotkey[:8]} cannot sync weights: layer not assigned")
             return
+
+        flattened_optimizer_state = None
+        weights = None
+
         try:
             logger.info(
                 f"🔄 Starting weight sync for miner {self.hotkey[:8]} | Layer: {self.layer} | Epoch: {self.epoch} | Steps since sync: {self.backwards_since_sync}"
             )
 
-            # Clear cache before weight syncing to free memory
-            self.saved_forward_activations.clear()
+            # Clear cache before weight syncing
+            self._clear_saved_forward_activations()
 
             # If local optimizer steps are smaller than global optimizer steps, we already handle them in step()
             if settings.LOCAL_OPTIMIZER_STEPS >= settings.GLOBAL_OPTIMIZER_STEPS:
@@ -521,30 +559,37 @@ class Miner(BaseNeuron):
             )
             await self.api_client.notify_merged_partitions_uploaded(partitions=partitions)
             logger.info("✅ Successfully uploaded merged partitions")
-        except Exception as e:
-            logger.error(f"❌ Miner {self.hotkey[:8]} failed to sync weights: {e}")
 
-        # Now we poll again until the merge process is complete
-        await self.await_orchestrator_status(status=MergingPhase.IS_TRAINING)
+            await self.await_orchestrator_status(status=MergingPhase.IS_TRAINING)
 
-        # Once merging is complete, we download the layer weights and update the model
-        try:
+            # Once merging is complete, we download the layer weights and update the model
             logger.info("📥 Downloading merged weights...")
             self.weights, self.optimizer = await self.download_weights()
             logger.info("✅ Successfully downloaded merged weights")
             logger.warning(f"WEIGHTS DOWNLOADED: {self.weights}")
-        except Exception as e:
-            logger.error(f"❌ Error downloading weights after merge: {e}")
-            # Continue even if weight download fails
 
-        self.backwards_since_sync = 0
-        self.epoch += 1
+            self.backwards_since_sync = 0
+            self.epoch += 1
 
-        logger.info(f"✅ Weight sync completed | Epoch: {self.epoch} | Miner: {self.hotkey[:8]}")
+            logger.info(f"✅ Weight sync completed | Epoch: {self.epoch} | Miner: {self.hotkey[:8]}")
 
-        # Clean GPU memory only after weight sync completes
-        logger.debug(f"Miner {self.hotkey[:8]} cleaning GPU memory after weight sync completion")
-        self._clean_gpu_memory()
+        finally:
+            # Guaranteed cleanup of large temporary tensors and GPU cache.
+            # This block executes regardless of whether the try block succeeds or fails.
+            logger.info("🗑️ Entering guaranteed cleanup block for sync_weights.")
+            try:
+                if flattened_optimizer_state is not None:
+                    del flattened_optimizer_state
+                if weights is not None:
+                    del weights
+
+                gc.collect()
+                torch.cuda.empty_cache()
+
+                logger.info("🗑️ Forced cleanup of temporary tensors and GPU cache completed.")
+            except NameError:
+                # This can happen if the function errored out before the tensors were created.
+                pass
 
     async def _merge_models(
         self, information_packets: list[SubmittedWeights], partition_ids: list[int]

@@ -104,14 +104,58 @@ class BaseNeuron(BaseModel):
     wallet_hotkey: str | None = None
 
     def _clean_gpu_memory(self):
-        """Force cleanup of GPU memory."""
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()  # wait for all in-flight kernels
-            torch.cuda.empty_cache()  # release unused cached blocks
-            torch.cuda.synchronize()  # (optional) make sure the allocator work is finished
+        logger.debug(f"🗑️ Cleaning GPU memory for {self.hotkey[:8]} 🗑️")
+
+        # Explicitly delete attributes that hold large tensors
+        if hasattr(self, "model") and self.model is not None:
+            del self.model
+            self.model = None
+            logger.debug("🗑️ Deleted self.model 🗑️")
+
+        if hasattr(self, "optimizer") and self.optimizer is not None:
+            del self.optimizer
+            self.optimizer = None
+            logger.debug("🗑️ Deleted self.optimizer 🗑️")
+
+        if hasattr(self, "lr_scheduler") and self.lr_scheduler is not None:
+            del self.lr_scheduler
+            self.lr_scheduler = None
+            logger.debug("🗑️ Deleted self.lr_scheduler 🗑️")
+
+        if hasattr(self, "weights") and self.weights is not None:
+            del self.weights
+            self.weights = None
+            logger.debug("🗑️ Deleted self.weights 🗑️")
 
         gc.collect()
-        logger.debug(f"Miner {self.hotkey} GPU memory cleaned. memory: {torch.cuda.memory_allocated() / 1024**3:.2f}GB")
+
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            allocated_memory = torch.cuda.memory_allocated() / 1024**3
+            logger.debug(f"GPU memory cleaned. Allocated memory: {allocated_memory:.2f}GB")
+
+    def _clear_cache_entry(self, activation_uid: str):
+        """Safely removes an entry from the activation cache and cleans up tensors."""
+        if activation_uid in self.saved_forward_activations:
+            # Pop the data from the cache
+            cached_data = self.saved_forward_activations.pop(activation_uid, None)
+
+            if cached_data:
+                # Unpack and explicitly delete to release references, helping the GC
+                input_act, output_act, state, _ = cached_data
+                del input_act
+                del output_act
+                del state
+                del cached_data
+
+            logger.debug(f"🗑️ Removed and cleaned activation {activation_uid} from cache 🗑️")
+
+    def _clear_saved_forward_activations(self):
+        """Clears the saved forward activations cache for all activations."""
+        for activation_uid in list(self.saved_forward_activations.keys()):
+            self._clear_cache_entry(activation_uid=activation_uid)
 
     async def _download_chunk(
         self,
