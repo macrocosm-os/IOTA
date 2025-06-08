@@ -104,29 +104,28 @@ class BaseNeuron(BaseModel):
     wallet_hotkey: str | None = None
 
     def _clean_gpu_memory(self):
-        """Force cleanup of GPU memory by deleting model, optimizer, and other related objects."""
-        logger.debug(f"Cleaning GPU memory for miner {self.hotkey}.")
+        logger.debug(f"🗑️ Cleaning GPU memory for miner {self.hotkey} 🗑️")
 
         # Explicitly delete attributes that hold large tensors
         if hasattr(self, "model") and self.model is not None:
             del self.model
             self.model = None
-            logger.debug("Deleted self.model")
+            logger.debug("🗑️ Deleted self.model 🗑️")
 
         if hasattr(self, "optimizer") and self.optimizer is not None:
             del self.optimizer
             self.optimizer = None
-            logger.debug("Deleted self.optimizer")
+            logger.debug("🗑️ Deleted self.optimizer 🗑️")
 
         if hasattr(self, "lr_scheduler") and self.lr_scheduler is not None:
             del self.lr_scheduler
             self.lr_scheduler = None
-            logger.debug("Deleted self.lr_scheduler")
+            logger.debug("🗑️ Deleted self.lr_scheduler 🗑️")
 
         if hasattr(self, "weights") and self.weights is not None:
             del self.weights
             self.weights = None
-            logger.debug("Deleted self.weights")
+            logger.debug("🗑️ Deleted self.weights 🗑️")
 
         gc.collect()
 
@@ -136,7 +135,7 @@ class BaseNeuron(BaseModel):
             torch.cuda.synchronize()
             allocated_memory = torch.cuda.memory_allocated() / 1024**3
             logger.debug(f"GPU memory cleaned. Allocated memory: {allocated_memory:.2f}GB")
-            
+
     async def _download_chunk(
         self,
         data_path: str,

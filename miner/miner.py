@@ -3,6 +3,7 @@ import time
 import uuid
 import json
 import io
+import gc
 from typing import Literal, Any, Optional
 
 import torch
@@ -52,17 +53,22 @@ class Miner(BaseNeuron):
                 del state
                 del cached_data
 
-            logger.debug(f"Removed and cleaned activation {activation_uid} from cache")
-            
+            logger.debug(f"🗑️ Removed and cleaned activation {activation_uid} from cache 🗑️")
+
+    def _clear_saved_forward_activations(self):
+        """Clears the saved forward activations cache for all activations."""
+        for activation_uid in list(self.saved_forward_activations.keys()):
+            self._clear_cache_entry(activation_uid=activation_uid)
+
     def _clean_gpu_memory(self):
         """Overrides the base neuron's cleanup to include miner-specific caches."""
-        logger.debug("Running miner-specific GPU memory cleanup.")
+        logger.debug("🗑️ Running miner-specific GPU memory cleanup. 🗑️")
 
         # Clear activation cache
         if hasattr(self, "saved_forward_activations"):
             logger.debug(f"Clearing {len(self.saved_forward_activations)} cached activations.")
-            for uid in list(self.saved_forward_activations.keys()):
-                self._clear_cache_entry(uid)
+
+        self._clear_saved_forward_activations()
 
         # Clear processed activation lists
         if hasattr(self, "processed_forward_activations"):
@@ -359,8 +365,10 @@ class Miner(BaseNeuron):
         if not self.training:
             result = await self.api_client.merge_info(layer=self.layer)
             logger.info(f"🔄 Miner {self.hotkey[:8]} entering merging phase: {result}")
+
             # Clear cache before weight syncing
-            self.saved_forward_activations.clear()
+            self._clear_saved_forward_activations()
+
             try:
                 await self.sync_weights(num_sections=int(result["num_sections"]))
                 self.training = True
@@ -378,7 +386,10 @@ class Miner(BaseNeuron):
                 f"🔄 Performing local all-reduce for miner {self.hotkey[:8]} | Steps: {self.backwards_since_reduce}"
             )
             await self.local_all_reduce()
-            self.saved_forward_activations.clear()
+
+            for activation_uid in list(self.saved_forward_activations.keys()):
+                self._clear_cache_entry(activation_uid=activation_uid)
+
             self.backwards_since_reduce = 0
             return
 
@@ -485,20 +496,28 @@ class Miner(BaseNeuron):
             await asyncio.sleep(1.5 if settings.MOCK else 10)
 
     async def sync_weights(self, num_sections: int):
+        """Syncs the weights of the miner with the orchestrator.
+
+        Args:
+            num_sections (int): The number of sections to sync.
+
+        Raises:
+            Exception: If the miner is not registered on the metagraph.
+        """
         if not self.has_layer:
             logger.warning(f"⚠️ Miner {self.hotkey[:8]} cannot sync weights: layer not assigned")
             return
 
         flattened_optimizer_state = None
         weights = None
+
         try:
             logger.info(
                 f"🔄 Starting weight sync for miner {self.hotkey[:8]} | Layer: {self.layer} | Epoch: {self.epoch} | Steps since sync: {self.backwards_since_sync}"
             )
 
             # Clear cache before weight syncing
-            for uid in list(self.saved_forward_activations.keys()):
-                self._clear_cache_entry(uid)
+            self._clear_saved_forward_activations()
 
             # If local optimizer steps are smaller than global optimizer steps, we already handle them in step()
             if settings.LOCAL_OPTIMIZER_STEPS >= settings.GLOBAL_OPTIMIZER_STEPS:
@@ -586,9 +605,10 @@ class Miner(BaseNeuron):
                     del flattened_optimizer_state
                 if weights is not None:
                     del weights
-                import gc
+
                 gc.collect()
                 torch.cuda.empty_cache()
+
                 logger.info("🗑️ Forced cleanup of temporary tensors and GPU cache completed.")
             except NameError:
                 # This can happen if the function errored out before the tensors were created.
