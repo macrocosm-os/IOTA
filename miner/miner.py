@@ -376,25 +376,36 @@ class Miner(BaseNeuron):
                             f"🗑️ Removed activation {activation_uid} from miner {self.hotkey[:8]} cache due to timeout"
                         )
 
-            # If self.training is false, we want to sync weights
+            # If self.training is false, we want to sync weights or wait for merging to complete
             if not self.training:
                 result = await self.api_client.merge_info(layer=self.layer)
-                if result["status"] != MergingPhase.WEIGHTS_UPLOADING.value:
-                    logger.warning(f"🔄 Miner {self.hotkey[:8]} not in weights uploading phase, skipping weight sync")
+                status = result["status"]
+                
+                if status == MergingPhase.WEIGHTS_UPLOADING.value:
+                    logger.info(f"🔄 Miner {self.hotkey[:8]} entering merging phase: {result}")
+                    # Clear cache before weight syncing
+                    self.saved_forward_activations.clear()
+                    try:
+                        await self.sync_weights(num_sections=int(result["num_sections"]))
+                        self.training = True
+                        return
+                    except Exception as e:
+                        logger.exception(f"❌ Error syncing weights for miner {self.hotkey[:8]}: {e}")
+                        await asyncio.sleep(WAIT_TIME)
+                        raise
+                        
+                elif status == MergingPhase.MINERS_MERGING_PARTITIONS.value:
+                    # Orchestrator is merging, wait for it to complete
+                    logger.info(f"🔄 Miner {self.hotkey[:8]} waiting for orchestrator to complete merging")
+                    await self.move_to_training()
                     self.training = True
                     return
-
-                logger.info(f"🔄 Miner {self.hotkey[:8]} entering merging phase: {result}")
-                # Clear cache before weight syncing
-                self.saved_forward_activations.clear()
-                try:
-                    await self.sync_weights(num_sections=int(result["num_sections"]))
+                    
+                else:
+                    # Unknown or training state, go back to training
+                    logger.warning(f"🔄 Miner {self.hotkey[:8]} not in expected phase (status: {status}), returning to training")
                     self.training = True
                     return
-                except Exception as e:
-                    logger.exception(f"❌ Error syncing weights for miner {self.hotkey[:8]}: {e}")
-                    await asyncio.sleep(WAIT_TIME)
-                    raise
 
             # If we've done enough backwards steps, we can do an all-reduce
             if (
@@ -1211,17 +1222,26 @@ class Miner(BaseNeuron):
             return
 
         if success.get("expected_state"):
+            expected_state = success["expected_state"]
             logger.warning(
-                f"❌ Miner attempted to make a request in the wrong state. Expected state: {success['expected_state']}"
+                f"❌ Miner attempted to make a request in the wrong state. Expected state: {expected_state}"
             )
-            if success["expected_state"] == "is_training":
+            
+            if expected_state == "is_training":
                 self.training = True
+            elif expected_state == "weights_uploading":
+                self.training = False  # Enter weight sync mode
+            elif expected_state == "miners_merging_partitions":
+                # Orchestrator is in merging phase, miner should wait
+                self.training = False
+                logger.info(f"🔄 Orchestrator is in merging phase, miner {self.hotkey[:8]} will wait")
             else:
+                # Default to non-training mode for unknown states
                 self.training = False
 
             logger.warning(f"❗️Miner has been put into training mode == {self.training} while inside _handle_bad_state")
             raise WrongStateException(
-                f"Miner {self.hotkey[:8]} attempted to make a request in the wrong state. Expected state: {success['expected_state']}"
+                f"Miner {self.hotkey[:8]} attempted to make a request in the wrong state. Expected state: {expected_state}"
             )
 
     async def start(self) -> asyncio.Task:
