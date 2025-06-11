@@ -673,7 +673,7 @@ def download_activation(path: str) -> torch.Tensor:
         # For local storage, read the file directly
         with open(path, "rb") as f:
             buffer = io.BytesIO(f.read())
-        tensor = torch.load(buffer, weights_only=False)
+        tensor = torch.load(buffer, map_location="cpu", weights_only=False)
         assert isinstance(
             tensor, torch.Tensor
         ), f"Downloaded tensor is not a torch.Tensor: {type(tensor)}, path: {path}"
@@ -685,7 +685,7 @@ def download_activation(path: str) -> torch.Tensor:
     response = s3_client.get_object(Bucket=bucket, Key=path)
     buffer = io.BytesIO(response["Body"].read())
 
-    tensor = torch.load(buffer, weights_only=False)
+    tensor = torch.load(buffer, map_location="cpu", weights_only=False)
     assert isinstance(tensor, torch.Tensor), f"Downloaded tensor is not a torch.Tensor: {type(tensor)}, path: {path}"
     check_for_nans(tensor, f"activation downloaded from {path}")
     return tensor
@@ -740,7 +740,7 @@ def download_optimizer_state(path: str) -> dict[str, Any]:
     bucket, path = normalize_s3_path(path)
     response = s3_client.get_object(Bucket=bucket, Key=path)
     buffer = io.BytesIO(response["Body"].read())
-    return torch.load(buffer, weights_only=False)
+    return torch.load(buffer, map_location="cpu", weights_only=False)
 
 
 def list_all_files(prefix: str = "") -> list[str]:
