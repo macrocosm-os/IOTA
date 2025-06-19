@@ -3,6 +3,7 @@ from loguru import logger
 from typing import Dict, Any, Optional
 import settings
 import asyncio
+import sys
 from aiohttp import ClientConnectorError, ContentTypeError
 from utils.epistula import generate_header, create_message_body
 from storage.serializers import (
@@ -24,14 +25,14 @@ from utils.partitions import Partition
 
 
 class APIClient:
-    def __init__(self, wallet=None, orchestrator_version: str = None):
+    def __init__(self, wallet=None, orchestrator_time: str = None):
         self.base_url = f"{settings.ORCHESTRATOR_SCHEME}://{settings.ORCHESTRATOR_HOST}:{settings.ORCHESTRATOR_PORT}"
         self.session = None
         self.max_retries = 3
         self.retry_delay = 3.0  # seconds
         self.wallet = wallet
         self.failed_api_request = False
-        self.orchestrator_version = orchestrator_version
+        self.orchestrator_time = orchestrator_time
 
     async def __aenter__(self):
         ssl = False if settings.ORCHESTRATOR_SCHEME == "http" else True
@@ -70,8 +71,8 @@ class APIClient:
         headers = generate_header(self.wallet.hotkey, body_bytes)
 
         # Add orchestrator version header if available
-        if self.orchestrator_version:
-            headers["X-Orchestrator-Version"] = self.orchestrator_version
+        if self.orchestrator_time:
+            headers["X-Orchestrator-Version"] = self.orchestrator_time
 
         # Add headers to request
         if "headers" not in kwargs:
@@ -89,13 +90,18 @@ class APIClient:
                             await asyncio.sleep(self.retry_delay * (attempt + 1))
                             continue
 
-                    # Conflict with the current state of the target resource
+                    # Handle version mismatch error
                     if response.status == 409:
                         response_json = await response.json()
+                        error_detail = response_json.get("detail", "")
+                        if "version mismatch" in error_detail.lower():
+                            logger.error(f"❌ Critical error: Orchestrator version mismatch detected: {error_detail}")
+                            logger.error("🔄 Shutting down miner to force restart with correct version...")
+                            sys.exit(1)  # Exit with error code 1 to indicate abnormal termination
                         logger.warning(
-                            f"Miner attempted to make a request ({method} {url}) in the wrong state: {response_json['detail']}"
+                            f"Miner attempted to make a request ({method} {url}) in the wrong state: {error_detail}"
                         )
-                        return {"expected_state": response_json["detail"]}
+                        return {"expected_state": error_detail}
 
                     if response.status >= 400:
                         error_text = await response.text()
@@ -146,11 +152,11 @@ class APIClient:
         try:
             response = MinerRegistrationResponse(**response)
             layer = response.layer
-            orchestrator_version = response.version
+            orchestrator_time = response.version
             # Store the orchestrator version for future requests
-            self.orchestrator_version = orchestrator_version
+            self.orchestrator_time = orchestrator_time
             logger.info(f"✅ API: Registration successful | Layer: {layer}")
-            return layer, orchestrator_version
+            return layer, orchestrator_time
         except Exception as e:
             logger.info(response)
             logger.exception(f"❌ API: Failed to register miner: {e}")
@@ -317,7 +323,7 @@ class APIClient:
             "post",
             f"{self.base_url}/orchestrator/register_validator?host={host}&port={port}&scheme={scheme}",
         )
-        self.orchestrator_version = str(response.get("version"))
+        self.orchestrator_time = str(response.get("version"))
         return response
 
     async def weight_partition_info(self):
@@ -395,3 +401,8 @@ class APIClient:
         except Exception as e:
             logger.warning(f"❌ API: Health check failed: {e}")
             return False
+
+    async def is_registered(self) -> bool:
+        """Check if the entity is registered with the orchestrator."""
+        response = await self._make_request("get", f"{self.base_url}/orchestrator/is_registered")
+        return response["is_registered"]
