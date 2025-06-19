@@ -1,3 +1,5 @@
+import asyncio
+import sys
 import random
 import threading
 import math
@@ -102,7 +104,7 @@ class BaseNeuron(BaseModel):
     uid: int | None = None
     wallet_name: str | None = None
     wallet_hotkey: str | None = None
-    orchestrator_version: str = ""
+    orchestrator_time: str = ""
 
     def _clean_gpu_memory(self):
         """Force cleanup of GPU memory."""
@@ -625,6 +627,20 @@ class BaseNeuron(BaseModel):
         if torch.cuda.is_available():
             allocated = torch.cuda.memory_allocated() / 1024**3  # GB
             logger.debug(f"GPU memory after local all reduce: {allocated:.2f}GB")
+
+    async def is_registered_loop(self) -> bool:
+        logger.info(f"{self.hotkey} is starting is_registered_loop")
+        await asyncio.sleep(100)
+        while True:
+            logger.info(f"{self.hotkey} is checking if it is registered with the orchestrator")
+            try:
+                is_registered = await self.api_client.is_registered()
+                if not is_registered:
+                    logger.warning(f"{self.hotkey} is not registered with the orchestrator")
+                    sys.exit(1)
+            except Exception as e:
+                logger.error(f"Error checking if {self.hotkey} is registered: {e}")
+            await asyncio.sleep(100)
 
     @property
     def block(self):

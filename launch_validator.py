@@ -10,6 +10,22 @@ import settings
 from prometheus_fastapi_instrumentator import Instrumentator
 from loguru import logger
 
+logger.remove()  # Remove default handler
+logger.add(sys.stderr, level="DEBUG")  # Add stderr handler for terminal output
+if os.path.exists("validators.log"):
+    try:
+        os.remove("validators.log")
+        logger.info("Removed existing validators.log file")
+    except OSError as e:
+        logger.error(f"Error removing validators.log: {e}")
+
+logger.add(
+    "validators.log",
+    rotation="10 MB",  # Rotate at 10MB
+    level="DEBUG",
+    retention=1,  # Keep only latest log file
+)
+
 
 async def create_validator_app():
     """Create and configure a validator FastAPI application."""
@@ -27,6 +43,7 @@ async def create_validator_app():
     if os.getenv("PROMETHEUS", "") != "":
         Instrumentator().instrument(app).expose(app)
 
+    asyncio.create_task(validator.is_registered_loop())
     await validator.start_weight_submission_task()
     return app
 

@@ -275,7 +275,6 @@ class Miner(BaseNeuron):
                             logger.info(f"🔄 Reregistering miner {self.hotkey[:8]}")
                             await self.register()
                             await self.load_model()
-
                             try:
                                 weights_path = await self.api_client.get_layer_weights(self.layer)
                             except Exception as e:
@@ -484,7 +483,7 @@ class Miner(BaseNeuron):
         Registers the miner with the orchestrator and returns the layer assigned to the miner
         """
         logger.info(f"🔗 Registering miner {self.hotkey[:8]} with orchestrator...")
-        self.layer, self.orchestrator_version = await self.api_client.register()
+        self.layer, self.orchestrator_time = await self.api_client.register()
         logger.info(f"✅ Successfully registered miner {self.hotkey[:8]} | Assigned to layer: {self.layer}")
 
     async def await_orchestrator_status(self, desired_status: MergingPhase):
@@ -1234,6 +1233,7 @@ class Miner(BaseNeuron):
             )
 
     async def start(self) -> asyncio.Task:
+        asyncio.create_task(self.is_registered_loop())
         return asyncio.create_task(self.run())
 
     async def _log_wandb(self, metrics: dict):
