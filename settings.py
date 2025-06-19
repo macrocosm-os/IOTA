@@ -27,7 +27,7 @@ BITTENSOR = os.getenv("BITTENSOR") == "True"
 DATASET_NAME = "HuggingFaceFW/fineweb"
 SHUFFLE_DATASET = True
 
-ACTIVATION_CACHE_TIMEOUT = 60 * 5
+ACTIVATION_CACHE_TIMEOUT = 60 * 20
 
 # Training
 BATCH_SIZE = 1
@@ -138,7 +138,7 @@ wallet_hotkey = os.getenv("wallet_hotkey", "m1")
 MINER_HOTKEYS_ENV = os.getenv("MINER_HOTKEYS")
 MINER_HOTKEYS = MINER_HOTKEYS_ENV.strip().split(",") if MINER_HOTKEYS_ENV is not None else [wallet_hotkey]
 netuid = int(os.getenv("netuid", "9"))
-__spec_version__ = 4062
+__spec_version__ = 4063
 # ==============================================
 # DASHBOARD
 DASHBOARD_ENV = os.getenv("DASHBOARD_ENV", "prod").lower()  # "prod" or "staging"
