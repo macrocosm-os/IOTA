@@ -650,7 +650,7 @@ class GradientValidator(BaseNeuron):
             # Save validation events to file before resetting
             await self._save_validation_events()
 
-            self.api_client = APIClient(self.wallet, orchestrator_version=self.orchestrator_version)
+            self.api_client = APIClient(self.wallet, orchestrator_time=self.orchestrator_version)
             await self.api_client.__aenter__()
 
             # The orchestrator tracks all the miner weights in uid space, but in the validator, we use self.tracked_miner which is a hotkey.

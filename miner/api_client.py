@@ -1,3 +1,4 @@
+import sys
 import aiohttp
 from loguru import logger
 from typing import Dict, Any, Optional
@@ -24,14 +25,14 @@ from utils.partitions import Partition
 
 
 class APIClient:
-    def __init__(self, wallet=None, orchestrator_version: str = None):
+    def __init__(self, wallet=None, orchestrator_time: str = None):
         self.base_url = f"{settings.ORCHESTRATOR_SCHEME}://{settings.ORCHESTRATOR_HOST}:{settings.ORCHESTRATOR_PORT}"
         self.session = None
         self.max_retries = 3
         self.retry_delay = 3.0  # seconds
         self.wallet = wallet
         self.failed_api_request = False
-        self.orchestrator_version = orchestrator_version
+        self.orchestrator_time = orchestrator_time
 
     async def __aenter__(self):
         ssl = False if settings.ORCHESTRATOR_SCHEME == "http" else True
@@ -70,8 +71,11 @@ class APIClient:
         headers = generate_header(self.wallet.hotkey, body_bytes)
 
         # Add orchestrator version header if available
-        if self.orchestrator_version:
-            headers["X-Orchestrator-Version"] = self.orchestrator_version
+        if self.orchestrator_time:
+            headers["X-Orchestrator-Version"] = self.orchestrator_time
+
+        # Add spec version header
+        headers["X-Spec-Version"] = str(settings.__spec_version__)
 
         # Add headers to request
         if "headers" not in kwargs:
@@ -92,6 +96,15 @@ class APIClient:
                     # Conflict with the current state of the target resource
                     if response.status == 409:
                         response_json = await response.json()
+                        error_detail = response_json.get("detail", "")
+                        if "Orchestrator version mismatch." in error_detail:
+                            logger.error(f"❌ Critical error: Orchestrator version mismatch detected: {error_detail}")
+                            logger.error("🔄 Shutting down to force restart with correct version...")
+                            sys.exit(1)  # Exit with error code 1 to indicate abnormal termination
+                        elif "Spec version mismatch." in error_detail:
+                            logger.error(f"❌ Critical error: Spec version mismatch detected: {error_detail}")
+                            logger.error("🔄 Update to the latest version, shutting down...")
+                            sys.exit(1)  # Exit with error code 1 to indicate abnormal termination
                         logger.warning(
                             f"Miner attempted to make a request ({method} {url}) in the wrong state: {response_json['detail']}"
                         )
@@ -146,11 +159,11 @@ class APIClient:
         try:
             response = MinerRegistrationResponse(**response)
             layer = response.layer
-            orchestrator_version = response.version
+            orchestrator_time = response.version
             # Store the orchestrator version for future requests
-            self.orchestrator_version = orchestrator_version
+            self.orchestrator_time = orchestrator_time
             logger.info(f"✅ API: Registration successful | Layer: {layer}")
-            return layer, orchestrator_version
+            return layer, orchestrator_time
         except Exception as e:
             logger.info(response)
             logger.exception(f"❌ API: Failed to register miner: {e}")
@@ -317,7 +330,7 @@ class APIClient:
             "post",
             f"{self.base_url}/orchestrator/register_validator?host={host}&port={port}&scheme={scheme}",
         )
-        self.orchestrator_version = str(response.get("version"))
+        self.orchestrator_time = str(response.get("version"))
         return response
 
     async def weight_partition_info(self):
