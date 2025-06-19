@@ -138,7 +138,7 @@ wallet_hotkey = os.getenv("wallet_hotkey", "m1")
 MINER_HOTKEYS_ENV = os.getenv("MINER_HOTKEYS")
 MINER_HOTKEYS = MINER_HOTKEYS_ENV.strip().split(",") if MINER_HOTKEYS_ENV is not None else [wallet_hotkey]
 netuid = int(os.getenv("netuid", "9"))
-__spec_version__ = 4062
+__spec_version__ = 4063
 # ==============================================
 # DASHBOARD
 DASHBOARD_ENV = os.getenv("DASHBOARD_ENV", "prod").lower()  # "prod" or "staging"
