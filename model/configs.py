@@ -32,7 +32,7 @@ LLAMA32_CONFIG_1B = {
     "context_length": 8192,  # Maximum context length to use (reduced to save memory)
     "orig_context_length": 131_072,  # Context length that was used to train the model
     "emb_dim": 2048,  # Embedding dimension
-    "bottleneck_dim": 8,  # Bottleneck dimension, if None
+    "bottleneck_dim": 32,  # Bottleneck dimension, if None
     "quantize_activations": False,
     "quantize_activations_grads": False,
     "quantize_weights": False,
@@ -133,7 +133,7 @@ LLAMA32_CONFIG_8B = {
     "context_length": 8192,  # Maximum context length to use (reduced to save memory)
     "orig_context_length": 131_072,  # Context length that was used to train the model
     "emb_dim": 4096,  # Embedding dimension
-    "bottleneck_dim": 16,  # Bottleneck dimension, if None
+    "bottleneck_dim": 64,  # Bottleneck dimension, if None
     "quantize_activations": False,
     "quantize_activations_grads": False,
     "quantize_weights": False,

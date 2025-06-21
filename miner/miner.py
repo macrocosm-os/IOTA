@@ -454,9 +454,11 @@ class Miner(BaseNeuron):
             pack=settings.PACK_SAMPLES,
         )
         loss.backward()
+        self.backwards_since_reduce += 1
 
         # Clip the gradients
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), settings.GRAD_CLIP_NORM)
+        if self.backwards_since_reduce >= settings.LOCAL_OPTIMIZER_STEPS:
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), settings.GRAD_CLIP_NORM)
 
         logger.info(f"📊 Local step loss: {loss.item():.6f} | Activation: {activation_uid} | Miner: {self.hotkey[:8]}")
 
@@ -476,8 +478,19 @@ class Miner(BaseNeuron):
 
         """
 
-        await self.api_client.report_loss(activation_uid, float(loss.item()))
-        await self.local_all_reduce()
+        # await self.api_client.report_loss(activation_uid, float(loss.item()))
+        # If we've done enough backwards steps, we can do an all-reduce
+        if (
+            self.backwards_since_reduce >= settings.LOCAL_OPTIMIZER_STEPS
+            and settings.LOCAL_OPTIMIZER_STEPS < settings.GLOBAL_OPTIMIZER_STEPS
+        ):
+            logger.info(
+                f"🔄 Performing local all-reduce for miner {self.hotkey[:8]} | Steps: {self.backwards_since_reduce}"
+            )
+            await self.local_all_reduce()
+            self.backwards_since_reduce = 0
+
+        # await self.local_all_reduce()
 
         logger.info(f"✅ Local step completed | Miner: {self.hotkey[:8]}")
 

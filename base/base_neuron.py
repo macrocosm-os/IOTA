@@ -320,9 +320,6 @@ class BaseNeuron(BaseModel):
                 logger.error(f"Error during backward step: {e}")
                 traceback.print_exc()
                 raise
-        if self.backwards_since_reduce >= settings.LOCAL_OPTIMIZER_STEPS:
-            # Clip the gradients
-            await self.clip_gradients()
 
     async def clip_gradients(self):
         if self.total_model_params is None:
@@ -611,6 +608,9 @@ class BaseNeuron(BaseModel):
         logger.info(f"{self.hotkey} updating weights after {self.backwards_since_reduce} steps")
         # if not settings.MOCK:
         logger.warning(f"{self.hotkey} is stepping")
+
+        # Clip the gradients
+        await self.clip_gradients()
 
         self.optimizer.step()
         self.lr_scheduler.step()

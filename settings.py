@@ -137,7 +137,7 @@ wallet_hotkey = os.getenv("wallet_hotkey", "m1")
 MINER_HOTKEYS_ENV = os.getenv("MINER_HOTKEYS")
 MINER_HOTKEYS = MINER_HOTKEYS_ENV.strip().split(",") if MINER_HOTKEYS_ENV is not None else [wallet_hotkey]
 netuid = int(os.getenv("netuid", "9"))
-__spec_version__ = 4063
+__spec_version__ = 4064
 
 # Weights & Biases
 WANDB_PROJECT = "pretrain-test"
