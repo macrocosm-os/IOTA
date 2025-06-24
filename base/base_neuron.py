@@ -218,8 +218,7 @@ class BaseNeuron(BaseModel):
                         partition.optimizer_state_data.chunk_start_idx : partition.optimizer_state_data.chunk_end_idx
                     ] = shard_optimizer_state
                 except Exception as e:
-                    logger.error(f"Error downloading weights: {e}")
-                    raise
+                    logger.error(f"Error downloading partition {partition.chunk_number}: {e}")
 
             # Check to make sure we didn't download any nans
             check_for_nans(new_weights, f"weights downloaded for miner {self.hotkey[:8]}")
